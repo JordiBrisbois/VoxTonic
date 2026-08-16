@@ -1,42 +1,63 @@
 # VoxTonic
 
-Guild Wars 2 Nexus addon that keeps your cosmetic tonic transformation active.
+VoxTonic keeps your cosmetic tonic transformation active in Guild Wars 2. When
+the transformation wears off, it automatically presses the game's
+**Equip/Unequip Novelty** bind to bring it right back — so your tonic stays on
+without you having to think about it.
 
-While enabled, VoxTonic watches the local player's buff bar (via the private
-`VoxTonic-RE` direct-memory backend) and presses the GW2 **Equip/Unequip
-Novelty** bind whenever the transformation effect drops — so you stay
-transformed automatically. PvE and competitive (sPvP + WvW) modes can be
-toggled independently; the PvE-only mount helper unequips the tonic when you
-press your mount key so the mount can go through, and the tonic comes back
-after dismounting.
+No overlay, no license: the options window lives in the Nexus addon list.
 
-No license, no overlay: the options window lives in the Nexus addon list.
+## Features
 
-## Build
+- **Auto re-press** — re-activates your equipped tonic whenever the
+  transformation effect drops (works while on foot).
+- **Mount helper (PvE)** — when you press your mount key while transformed,
+  the tonic is unequipped first so the mount can go through; it comes back
+  automatically after you dismount. Dismounting is never automated.
+- **Mode gates** — enable the re-press in PvE and/or competitive (sPvP + WvW)
+  independently. With neither checked the addon is fully inert.
+- **Known tonic ids** — an optional "scan all known ids" mode auto-detects any
+  transformation from the list of well-known cosmetic tonics, so you do not
+  need to look up an id. You can also configure a single effect id.
 
-```bash
-cmake -S VoxTonic -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DVOXT_ENABLE_LIVE_DATA=ON -DVOXT_LIVE_DATA_DIR=../VoxTonic-RE \
-  -DVOXT_INSTALL_DIR="<game>/addons"
-cmake --build build
-```
+## Requirements
 
-Requires MinGW-w64 and Ninja. The CI workflow builds the release DLL the same
-way and publishes a GitHub release with a timestamp version (`vYYYY.M.D.HHMM`).
+- Guild Wars 2
+- [Nexus](https://github.com/RaidcoreGG/Nexus) (addon loader)
+
+## Install
+
+1. Download the latest `VoxTonic.dll` from the
+   [Releases](https://github.com/JordiBrisbois/VoxTonic/releases) page.
+2. Place it in `<game>/addons/` (next to `Nexus/`).
+3. Reload the addon list in Nexus (or restart the game).
+4. Open the Nexus options and enable VoxTonic in the addon list.
 
 ## Settings
 
-Stored in `<game>/addons/VoxTonic/settings.ini`:
+Stored in `<game>/addons/VoxTonic/settings.ini` (editable from the options
+window):
 
-- `enabled` — master switch
-- `effect_id` — precise transformation id when `scan_all` is off
-- `scan_all` — detect among all known transformation ids
-- `enable_pve` / `enable_competitive` — mode gates (sPvP + WvW are competitive)
-- `repress_delay_ms` — anti-spam between presses
-- `mount_unlock_enabled` / `mount_unlock_key` — PvE mount helper (VK code)
-- `novelty_bind` — EGameBinds id of Equip/Unequip Novelty (default 162)
+- **Enable** — master switch for the auto re-press.
+- **Modes** — PvE and/or Competitive (sPvP + WvW).
+- **Effect** — "Scan all known tonic ids" (auto-detect) or a precise
+  transformation effect id.
+- **Re-press delay** — minimum time between two presses (anti-spam).
+- **Mount helper** — PvE-only: unequip the tonic when the mount key is
+  pressed. Configure the mount key by its Windows virtual-key code (88 = X).
+- **Novelty bind** — the game bind that toggles your tonic (default 162 =
+  Equip/Unequip Novelty; leave it unless you know what you are doing).
 
-## Dependencies
+## Tips
 
-- Nexus (required)
-- VoxTonic-RE (private direct-memory backend)
+- If the status shows a transformation id you recognize, that tonic is
+  currently active and the addon is holding it.
+- "Scan all known tonic ids" is the easiest setup: enable it and the addon
+  takes care of the rest.
+- Some tonics share ids; if a specific tonic is not detected, use Discover
+  from the "Custom effects" flow to observe its id and set it manually.
+
+## Disclaimer
+
+VoxTonic reads your character's buff state and presses a game bind you have
+already configured yourself. Use at your own risk.

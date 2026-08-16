@@ -13,5 +13,6 @@ std::vector<std::uint32_t> activeEffectIds() { return {}; }
 Snapshot snapshot() { return {}; }
 Diagnostics diagnostics() { return {}; }
 const char* diagnosticStage() { return "not_initialized"; }
+const char* diagnosticDetail() { return "stub backend"; }
 
 } // namespace voxtonic::live_data

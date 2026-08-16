@@ -137,14 +137,14 @@ void tick(void* apiRaw, void*)
 {
     auto* api = static_cast<AddonAPI*>(apiRaw);
     if (api == nullptr) return;
-    if (!settings::enabled) return;
 
-    // Keep the backend's tracked id list in sync with the settings. The
-    // backend ignores no-op updates, so this is cheap on every tick. Pushed
-    // before the readiness check: the backend has no snapshot until it knows
-    // which ids to scan.
+    // Always keep the backend's tracked id list populated so it produces a
+    // valid snapshot (ready() becomes true) and the options UI can show the
+    // real transformation state — even while the feature itself is disabled.
+    // The backend ignores no-op updates, so this is cheap on every tick.
     syncTrackedIds();
 
+    if (!settings::enabled) return;
     if (!live_data::ready()) return;
 
     const auto now = std::chrono::steady_clock::now();

@@ -78,6 +78,7 @@ void renderOptions()
     } else {
         ImGui::TextColored({0.9f, 0.6f, 0.3f, 1.0f}, "Status: backend not ready (%s)",
             live_data::diagnosticStage());
+        ImGui::TextDisabled("Detail: %s", live_data::diagnosticDetail());
     }
 
     ImGui::Separator();

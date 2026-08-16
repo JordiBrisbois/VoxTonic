@@ -54,8 +54,9 @@ window):
   currently active and the addon is holding it.
 - "Scan all known tonic ids" is the easiest setup: enable it and the addon
   takes care of the rest.
-- Some tonics share ids; if a specific tonic is not detected, use Discover
-  from the "Custom effects" flow to observe its id and set it manually.
+- Some tonics share ids; if a specific tonic is not detected, equip it in-game
+  and check the status line — it shows the active transformation id, which you
+  can then set manually in the Effect field.
 
 ## Disclaimer
 

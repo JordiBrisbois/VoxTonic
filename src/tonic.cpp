@@ -51,16 +51,14 @@ bool isTransformed()
     return std::ranges::find(active, settings::effectId) != active.end();
 }
 
-// Pushes the currently configured ids to the live-data backend. Called on
-// every tick; the backend ignores no-op updates, so this is cheap.
+// The backend always scans every known tonic id so its snapshot is meaningful
+// (ready() becomes true and the UI can show the actual transformation state)
+// regardless of the user's scanAll/effectId settings. The decision of what to
+// re-press is made by isTransformed() above from the configured ids only.
 void syncTrackedIds()
 {
     std::vector<std::uint32_t> ids;
-    if (settings::scanAll) {
-        ids.assign(ids::kKnownTonicIds.begin(), ids::kKnownTonicIds.end());
-    } else if (settings::effectId != 0) {
-        ids.push_back(settings::effectId);
-    }
+    ids.assign(ids::kKnownTonicIds.begin(), ids::kKnownTonicIds.end());
     live_data::setTrackedIds(std::move(ids));
 }
 

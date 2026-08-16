@@ -34,7 +34,7 @@ elseif(VOXT_ENABLE_LIVE_DATA AND DEFINED ENV{GITHUB_ACTIONS} AND "$ENV{GITHUB_AC
         GIT_TAG "${VOXT_LIVE_DATA_REF}")
     FetchContent_MakeAvailable(voxtonic_live_data_source)
 else()
-    message(FATAL_ERROR "VoxTonic-RE not found at ${VOXT_LIVE_DATA_DIR}")
+    list(APPEND VOXT_SOURCES src/live_data_stub.cpp)
 endif()
 
 option(VOXT_BUILD_ADDON "Build the Windows Nexus addon" ON)

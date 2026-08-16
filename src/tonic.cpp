@@ -51,6 +51,19 @@ bool isTransformed()
     return std::ranges::find(active, settings::effectId) != active.end();
 }
 
+// Pushes the currently configured ids to the live-data backend. Called on
+// every tick; the backend ignores no-op updates, so this is cheap.
+void syncTrackedIds()
+{
+    std::vector<std::uint32_t> ids;
+    if (settings::scanAll) {
+        ids.assign(ids::kKnownTonicIds.begin(), ids::kKnownTonicIds.end());
+    } else if (settings::effectId != 0) {
+        ids.push_back(settings::effectId);
+    }
+    live_data::setTrackedIds(std::move(ids));
+}
+
 void pressGameBind(AddonAPI* api, const int bind)
 {
     if (api == nullptr || api->GameBinds.InvokeAsync == nullptr) return;
@@ -127,6 +140,13 @@ void tick(void* apiRaw, void*)
     auto* api = static_cast<AddonAPI*>(apiRaw);
     if (api == nullptr) return;
     if (!settings::enabled) return;
+
+    // Keep the backend's tracked id list in sync with the settings. The
+    // backend ignores no-op updates, so this is cheap on every tick. Pushed
+    // before the readiness check: the backend has no snapshot until it knows
+    // which ids to scan.
+    syncTrackedIds();
+
     if (!live_data::ready()) return;
 
     const auto now = std::chrono::steady_clock::now();

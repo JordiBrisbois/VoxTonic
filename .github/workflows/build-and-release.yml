@@ -1,0 +1,145 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: build-and-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 ninja-build
+
+      - name: Configure git for private backend fetch
+        run: |
+          git config --global url."https://${{ secrets.GH_PAT }}:@github.com/".insteadOf "https://github.com/"
+
+      - name: Configure portable tests
+        run: >
+          cmake -S . -B build-tests -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DVOXT_BUILD_ADDON=OFF
+          -DVOXT_ENABLE_LIVE_DATA=OFF
+
+      - name: Run portable tests
+        run: |
+          cmake --build build-tests
+          ctest --test-dir build-tests --output-on-failure
+
+      - name: Checkout private backend
+        uses: actions/checkout@v4
+        with:
+          repository: JordiBrisbois/VoxTonic-RE
+          token: ${{ secrets.GH_PAT }}
+          path: VoxTonic-RE
+
+      - name: Configure CMake
+        run: >
+          cmake -S . -B build
+          -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_SYSTEM_NAME=Windows
+          -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc
+          -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++
+          -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres
+          -DVOXT_ENABLE_LIVE_DATA=ON
+          -DVOXT_LIVE_DATA_DIR=${{ github.workspace }}/VoxTonic-RE
+          -DBUILD_TESTING=OFF
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Strip debug symbols
+        run: x86_64-w64-mingw32-strip build/VoxTonic.dll
+
+      - name: Verify release binary
+        run: |
+          test -f build/VoxTonic.dll
+          x86_64-w64-mingw32-objdump -p build/VoxTonic.dll | grep -q 'GetAddonDef'
+          ! x86_64-w64-mingw32-objdump -p build/VoxTonic.dll | grep -E 'CreateRemoteThread|WriteProcessMemory|VirtualAllocEx'
+          sha256sum build/VoxTonic.dll
+
+      - name: Remove private fetch credentials
+        if: always()
+        run: git config --global --unset-all url."https://${{ secrets.GH_PAT }}:@github.com/".insteadOf || true
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(cat build/version.txt)
+          echo "VERSION=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoxTonic-release-candidate
+          path: build/VoxTonic.dll
+          if-no-files-found: error
+          retention-days: 14
+
+  defender-scan:
+    needs: build
+    runs-on: windows-latest
+
+    steps:
+      - name: Download exact release candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: VoxTonic-release-candidate
+          path: release-candidate
+
+      - name: Scan exact release candidate with Microsoft Defender
+        shell: powershell
+        run: |
+          $scanStarted = Get-Date
+          $dll = (Resolve-Path "release-candidate\VoxTonic.dll").Path
+          Get-FileHash $dll -Algorithm SHA256
+          Start-MpScan -ScanType CustomScan -ScanPath $dll
+          if (-not (Test-Path $dll)) {
+            throw "Microsoft Defender removed or quarantined the release candidate."
+          }
+          $detection = Get-MpThreatDetection |
+            Where-Object { $_.InitialDetectionTime -ge $scanStarted }
+          if ($detection) {
+            $detection | Format-List
+            throw "Microsoft Defender detected the release candidate."
+          }
+
+  create-release:
+    needs: [build, defender-scan]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download scanned release candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: VoxTonic-release-candidate
+          path: release-candidate
+
+      - name: Publish GitHub release
+        run: |
+          sha256sum release-candidate/VoxTonic.dll
+          gh release create "${{ needs.build.outputs.version }}" \
+            ./release-candidate/VoxTonic.dll \
+            --repo "${{ github.repository }}" \
+            --generate-notes \
+            --title "${{ needs.build.outputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

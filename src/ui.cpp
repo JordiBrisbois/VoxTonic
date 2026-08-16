@@ -30,29 +30,42 @@ void renderOptions()
     ImGui::TextUnformatted("VoxTonic — cosmetic tonic auto re-press");
     ImGui::Separator();
 
-    changed |= ImGui::Checkbox("Enable tonic auto re-press", &settings::enabled);
+    if (ImGui::Checkbox("Enable tonic auto re-press", &settings::enabled)) {
+        settings::markChanged();
+        changed = true;
+    }
     ImGui::TextDisabled(
         "Presses the GW2 \"Equip/Unequip Novelty\" bind when the transformation "
         "effect is no longer active. Works while on foot.");
 
     ImGui::Separator();
     ImGui::TextUnformatted("Modes:");
-    changed |= ImGui::Checkbox("PvE", &settings::enablePve);
+    if (ImGui::Checkbox("PvE", &settings::enablePve)) {
+        settings::markChanged();
+        changed = true;
+    }
     ImGui::SameLine();
-    changed |= ImGui::Checkbox("Competitive (sPvP + WvW)", &settings::enableCompetitive);
+    if (ImGui::Checkbox("Competitive (sPvP + WvW)", &settings::enableCompetitive)) {
+        settings::markChanged();
+        changed = true;
+    }
     ImGui::TextDisabled(
         "The re-press runs in the modes checked. With neither checked the "
         "feature is fully inert (no performance cost).");
 
     ImGui::Separator();
     ImGui::TextUnformatted("Effect:");
-    changed |= ImGui::Checkbox("Scan all known tonic ids", &settings::scanAll);
+    if (ImGui::Checkbox("Scan all known tonic ids", &settings::scanAll)) {
+        settings::markChanged();
+        changed = true;
+    }
     if (!settings::scanAll) {
         int effectId = static_cast<int>(settings::effectId);
         ImGui::SetNextItemWidth(140.0f);
         if (ImGui::InputInt("Transformation effect ID", &effectId)) {
             if (effectId > 0 && effectId <= 10'000'000) {
                 settings::effectId = static_cast<std::uint32_t>(effectId);
+                settings::markChanged();
                 changed = true;
             }
         }
@@ -84,6 +97,7 @@ void renderOptions()
     ImGui::Separator();
     ImGui::SetNextItemWidth(140.0f);
     if (ImGui::InputInt("Re-press delay (ms)", &settings::rePressDelayMs)) {
+        settings::markChanged();
         changed = true;
     }
     ImGui::TextDisabled("Minimum time between two presses (anti-spam).");
@@ -92,11 +106,13 @@ void renderOptions()
     bool mountUnlock = settings::mountUnlockEnabled;
     if (ImGui::Checkbox("Unequip tonic on mount press (PvE only)", &mountUnlock)) {
         settings::mountUnlockEnabled = mountUnlock;
+        settings::markChanged();
         tonic::updateBindings(api);
         changed = true;
     }
     ImGui::SetNextItemWidth(100.0f);
     if (ImGui::InputInt("Mount key (VK code)", &settings::mountUnlockKey)) {
+        settings::markChanged();
         tonic::updateBindings(api);
         changed = true;
     }
@@ -108,13 +124,14 @@ void renderOptions()
     ImGui::Separator();
     ImGui::SetNextItemWidth(100.0f);
     if (ImGui::InputInt("Novelty bind id", &settings::noveltyBind)) {
+        settings::markChanged();
         changed = true;
     }
     ImGui::TextDisabled("EGameBinds value of the bind to press. 162 = Equip/Unequip Novelty.");
 
     if (changed) {
-        // Force a save on the next frame (debounced).
-        settings::saveIfChanged(true);
+        // Debounced save; the 400 ms debounce batches rapid edits.
+        settings::saveIfChanged(false);
     }
 }
 

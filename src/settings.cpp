@@ -60,6 +60,12 @@ void load()
     dirty = false;
 }
 
+void markChanged()
+{
+    dirty = true;
+    changedAt = std::chrono::steady_clock::now();
+}
+
 void saveIfChanged(const bool force)
 {
     if (!dirty) return;

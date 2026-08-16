@@ -17,6 +17,9 @@ extern int noveltyBind;              // EGameBinds value of Equip/Unequip Novelt
 
 void load();
 void saveIfChanged(bool force = false);
+// Marks the settings as changed (persisted on the next debounced save). UI
+// and other callers must call this after mutating any setting.
+void markChanged();
 bool changed();
 
 } // namespace voxtonic::settings

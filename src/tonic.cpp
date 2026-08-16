@@ -55,11 +55,16 @@ bool isTransformed()
 // (ready() becomes true and the UI can show the actual transformation state)
 // regardless of the user's scanAll/effectId settings. The decision of what to
 // re-press is made by isTransformed() above from the configured ids only.
+// Only pushes when the set changed; the backend re-syncs the self cache on
+// change, so a no-op push every frame would waste a cache rebuild.
 void syncTrackedIds()
 {
-    std::vector<std::uint32_t> ids;
-    ids.assign(ids::kKnownTonicIds.begin(), ids::kKnownTonicIds.end());
-    live_data::setTrackedIds(std::move(ids));
+    static std::vector<std::uint32_t> lastSent;
+    std::vector<std::uint32_t> tracked;
+    tracked.assign(ids::kKnownTonicIds.begin(), ids::kKnownTonicIds.end());
+    if (tracked == lastSent) return;
+    lastSent = std::move(tracked);
+    live_data::setTrackedIds(lastSent);
 }
 
 void pressGameBind(AddonAPI* api, const int bind)

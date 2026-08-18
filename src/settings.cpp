@@ -43,7 +43,7 @@ void parseLine(const std::string& line)
 
 bool enabled = false;
 std::uint32_t effectId = 0;
-bool scanAll = false;
+bool scanAll = true;
 bool enablePve = true;
 bool enableCompetitive = false;
 int rePressDelayMs = 2000;
@@ -57,6 +57,7 @@ void load()
     std::string line;
     while (std::getline(file, line)) parseLine(line);
     rePressDelayMs = std::clamp(rePressDelayMs, 200, 30000);
+    if (!scanAll && effectId == 0) scanAll = true;
     dirty = false;
 }
 

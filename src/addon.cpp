@@ -1,6 +1,7 @@
 #include "Nexus.h"
 #include "imgui.h"
 
+#include "companion.hpp"
 #include "live_data_api.hpp"
 #include "settings.hpp"
 #include "tonic.hpp"
@@ -27,6 +28,7 @@ constexpr auto unloadDrainTimeout = std::chrono::seconds {5};
 void tryInitializeLive()
 {
     if (api == nullptr || liveInitialized) return;
+    if (voxtonic::companion::isActive()) return;
     const auto now = std::chrono::steady_clock::now();
     if (now - loadedAt < liveHookDelay) return;
     if (now < nextLiveInitAttempt) return;
@@ -53,6 +55,8 @@ void render()
 {
     RenderScope scope;
     if (stopping.load(std::memory_order_acquire)) return;
+    voxtonic::companion::poll();
+    if (voxtonic::companion::isActive()) return;
     tryInitializeLive();
     voxtonic::live_data::pump();
     voxtonic::tonic::tick(api, nullptr);
@@ -75,6 +79,12 @@ void load(AddonAPI* addonApi)
     liveInitialized = false;
     liveInitAttempts = 0;
     nextLiveInitAttempt = {};
+    voxtonic::companion::reset();
+    voxtonic::companion::poll();
+    if (voxtonic::companion::isActive()) {
+        api->Log(ELogLevel_INFO, "VoxTonic",
+            "VoxSake detected — VoxTonic is disabled (priority to VoxSake).");
+    }
     ImGui::SetCurrentContext(static_cast<ImGuiContext*>(api->ImguiContext));
     ImGui::SetAllocatorFunctions(
         reinterpret_cast<void*(*)(size_t, void*)>(reinterpret_cast<std::uintptr_t>(api->ImguiMalloc)),
@@ -85,7 +95,9 @@ void load(AddonAPI* addonApi)
     voxtonic::tonic::updateBindings(api);
     api->Renderer.Register(ERenderType_Render, render);
     api->Renderer.Register(ERenderType_OptionsRender, renderOptions);
-    api->Log(ELogLevel_INFO, "VoxTonic", "Loaded.");
+    if (!voxtonic::companion::isActive()) {
+        api->Log(ELogLevel_INFO, "VoxTonic", "Loaded.");
+    }
 }
 
 void unload()
@@ -104,6 +116,7 @@ void unload()
     voxtonic::live_data::shutdown();
     voxtonic::tonic::updateBindings(nullptr);
     voxtonic::tonic::reset();
+    voxtonic::companion::reset();
     voxtonic::ui::setApi(nullptr);
     api = nullptr;
     stopping.store(false, std::memory_order_release);
@@ -112,7 +125,7 @@ void unload()
 
 extern "C" __declspec(dllexport) AddonDefinition* GetAddonDef()
 {
-    addon.Signature = -0x564F58;  // "VOX" — negative: not on Raidcore
+    addon.Signature = -0x564F58;
     addon.APIVersion = NEXUS_API_VERSION;
     addon.Name = "VoxTonic";
     addon.Version = {VOXT_VERSION_MAJOR, VOXT_VERSION_MINOR,

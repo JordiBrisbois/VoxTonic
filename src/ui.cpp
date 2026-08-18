@@ -2,6 +2,7 @@
 
 #include "Nexus.h"
 #include "imgui.h"
+#include "companion.hpp"
 #include "live_data_api.hpp"
 #include "settings.hpp"
 #include "tonic.hpp"
@@ -14,17 +15,25 @@ namespace {
 
 AddonAPI* api = nullptr;
 
-} // namespace
+}
 
 void setApi(void* addonApi) { api = static_cast<AddonAPI*>(addonApi); }
 
 void render()
 {
-    // No in-game overlay: VoxTonic is headless (settings window only).
 }
 
 void renderOptions()
 {
+    if (companion::isActive()) {
+        ImGui::TextColored({0.9f, 0.55f, 0.3f, 1.0f},
+            "VoxSake detected — VoxTonic is disabled.");
+        ImGui::TextDisabled(
+            "The tonic auto re-press is handled by VoxSake. "
+            "Unload VoxSake or remove its DLL to re-enable VoxTonic.");
+        return;
+    }
+
     bool changed = false;
 
     ImGui::TextUnformatted("VoxTonic — cosmetic tonic auto re-press");
@@ -77,7 +86,6 @@ void renderOptions()
             ids::kKnownTonicIds.size());
     }
 
-    // Status line: backend readiness and currently active effect.
     if (live_data::ready()) {
         const auto active = live_data::activeEffectIds();
         if (active.empty()) {
@@ -130,9 +138,8 @@ void renderOptions()
     ImGui::TextDisabled("EGameBinds value of the bind to press. 162 = Equip/Unequip Novelty.");
 
     if (changed) {
-        // Debounced save; the 400 ms debounce batches rapid edits.
         settings::saveIfChanged(false);
     }
 }
 
-} // namespace voxtonic::ui
+}

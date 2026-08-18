@@ -1,6 +1,7 @@
 #include "tonic.hpp"
 
 #include "Nexus.h"
+#include "companion.hpp"
 #include "live_data_api.hpp"
 #include "mumble_link.hpp"
 #include "settings.hpp"
@@ -8,6 +9,7 @@
 #include "tonic_logic.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 
@@ -15,31 +17,25 @@ namespace voxtonic::tonic {
 namespace {
 
 constexpr auto tickInterval = std::chrono::milliseconds {100};
-// Hold duration for the invoked game bind, mirroring a short keypress.
 constexpr int bindHoldMs = 50;
-// EGameBinds value of Mount/Dismount (the player's own bind in GW2 options).
-constexpr int kMountToggleBind = 152; // EGameBinds_SpumoniToggle
-// Wait this long after the tonic disappears before pressing the mount bind,
-// letting GW2 finish the unequip animation.
+constexpr int kMountToggleBind = 152;
 constexpr auto mountUnequipSettle = std::chrono::milliseconds {250};
-// If the mount has not been taken within this window, abandon the unlock and
-// let the normal tonic re-press restore the tonic.
 constexpr auto mountAttemptTimeout = std::chrono::milliseconds {1500};
-// Ignore WndProc messages this soon after our own synthetic press (echo guard).
-constexpr auto echoGuardWindow = std::chrono::milliseconds {300};
+constexpr auto echoGuardWindow = std::chrono::milliseconds {180};
 
 logic::DecisionState decisionState;
 std::chrono::steady_clock::time_point lastTick {};
 AddonAPI* boundApi = nullptr;
 
-// Set when the player presses the mount key while transformed on foot in PvE:
-// the tick loop then presses the GW2 mount bind once the tonic is gone.
-bool mountRequested = false;
-bool mountPressSent = false;
+std::atomic_bool mountRequested = false;
+std::atomic_bool mountPressSent = false;
 std::chrono::steady_clock::time_point mountRequestedAt {};
 std::chrono::steady_clock::time_point lastProgrammaticPressAt {};
+WPARAM lastProgrammaticKey = 0;
+std::vector<std::uint32_t> lastTrackedIds;
+bool trackedIdsInitialized = false;
+bool decisionFeatureWasActive = false;
 
-// True when any configured transformation effect is currently active.
 bool isTransformed()
 {
     const auto active = live_data::activeEffectIds();
@@ -51,78 +47,84 @@ bool isTransformed()
     return std::ranges::find(active, settings::effectId) != active.end();
 }
 
-// The backend always scans every known tonic id so its snapshot is meaningful
-// (ready() becomes true and the UI can show the actual transformation state)
-// regardless of the user's scanAll/effectId settings. The decision of what to
-// re-press is made by isTransformed() above from the configured ids only.
-// Only pushes when the set changed; the backend re-syncs the self cache on
-// change, so a no-op push every frame would waste a cache rebuild.
 void syncTrackedIds()
 {
-    static std::vector<std::uint32_t> lastSent;
+    static bool lastScanAll = false;
+    static std::uint32_t lastEffectId = 0;
+    if (trackedIdsInitialized
+        && lastScanAll == settings::scanAll
+        && lastEffectId == settings::effectId) return;
+
     std::vector<std::uint32_t> tracked;
-    tracked.assign(ids::kKnownTonicIds.begin(), ids::kKnownTonicIds.end());
-    if (tracked == lastSent) return;
-    lastSent = std::move(tracked);
-    live_data::setTrackedIds(lastSent);
+    if (settings::scanAll) {
+        tracked.assign(ids::kKnownTonicIds.begin(), ids::kKnownTonicIds.end());
+    } else if (settings::effectId != 0) {
+        tracked.push_back(settings::effectId);
+    }
+    if (tracked == lastTrackedIds) {
+        trackedIdsInitialized = true;
+        return;
+    }
+    lastScanAll = settings::scanAll;
+    lastEffectId = settings::effectId;
+    lastTrackedIds = std::move(tracked);
+    trackedIdsInitialized = true;
+    live_data::setTrackedIds(lastTrackedIds);
 }
 
-void pressGameBind(AddonAPI* api, const int bind)
+bool pressGameBind(AddonAPI* api, const int bind)
 {
-    if (api == nullptr || api->GameBinds.InvokeAsync == nullptr) return;
+    if (api == nullptr || api->GameBinds.InvokeAsync == nullptr) return false;
     api->GameBinds.InvokeAsync(static_cast<EGameBinds>(bind), bindHoldMs);
     lastProgrammaticPressAt = std::chrono::steady_clock::now();
+    lastProgrammaticKey = static_cast<WPARAM>(settings::mountUnlockKey);
+    return true;
 }
 
-// Observes the mount key. The key is passed through to the game untouched in
-// every case except one: transformed on foot in PvE, where we block it,
-// unequip the tonic and let the tick re-press the GW2 mount bind once the
-// effect is gone. Because everything else passes through, dismounting, WvW
-// mounting and mounting without a tonic keep working exactly as in vanilla GW2.
 UINT onMountUnlockWndProc(HWND, const UINT uMsg, const WPARAM wParam, const LPARAM lParam)
 {
+    if (companion::isActive()) return 1;
     if (uMsg != WM_KEYDOWN && uMsg != WM_SYSKEYDOWN) return 1;
     if (wParam != static_cast<WPARAM>(settings::mountUnlockKey)) return 1;
-    // Key repeat (held key): let it through.
     if ((lParam & 0x40000000) != 0) return 1;
     if (boundApi == nullptr) return 1;
     if (!settings::enabled) return 1;
     if (!settings::mountUnlockEnabled) return 1;
-    // The mount-unlock is a PvE-only helper: when the PvE toggle is off, never
-    // intercept the key.
     if (!settings::enablePve) return 1;
+    if (mumble_link::textInputFocused()) return 1;
 
-    // Swallow the echo of our own synthetic press so it cannot loop.
     const auto now = std::chrono::steady_clock::now();
     if (lastProgrammaticPressAt != std::chrono::steady_clock::time_point {}
-        && now - lastProgrammaticPressAt < echoGuardWindow) {
+        && now - lastProgrammaticPressAt < echoGuardWindow
+        && wParam == lastProgrammaticKey) {
         return 0;
     }
 
-    // Pass-through cases: competitive maps (game handles the tonic), mounted
-    // (game handles dismount), not transformed (game mounts normally).
     if (mumble_link::isCompetitive()) return 1;
     if (mumble_link::mountIndex() != 0) return 1;
     if (!isTransformed()) return 1;
 
-    // Transformed on foot in PvE: unequip the tonic, block the key, and let
-    // the tick press the GW2 mount bind once the effect is gone.
-    mountRequested = true;
-    mountPressSent = false;
+    if (!pressGameBind(boundApi, settings::noveltyBind)) return 1;
+    mountRequested.store(true, std::memory_order_release);
+    mountPressSent.store(false, std::memory_order_release);
     mountRequestedAt = now;
-    pressGameBind(boundApi, settings::noveltyBind);
     return 0;
 }
 
-} // namespace
+}
 
 void reset()
 {
     decisionState = {};
     lastTick = {};
-    mountRequested = false;
-    mountPressSent = false;
+    mountRequested.store(false, std::memory_order_release);
+    mountPressSent.store(false, std::memory_order_release);
     mountRequestedAt = {};
+    lastProgrammaticPressAt = {};
+    lastProgrammaticKey = 0;
+    lastTrackedIds.clear();
+    trackedIdsInitialized = false;
+    decisionFeatureWasActive = false;
 }
 
 void updateBindings(void* apiRaw)
@@ -142,51 +144,77 @@ void tick(void* apiRaw, void*)
 {
     auto* api = static_cast<AddonAPI*>(apiRaw);
     if (api == nullptr) return;
+    companion::poll();
+    if (companion::isActive()) {
+        mountRequested.store(false, std::memory_order_release);
+        decisionFeatureWasActive = false;
+        decisionState = {};
+        return;
+    }
 
-    // Always keep the backend's tracked id list populated so it produces a
-    // valid snapshot (ready() becomes true) and the options UI can show the
-    // real transformation state — even while the feature itself is disabled.
-    // The backend ignores no-op updates, so this is cheap on every tick.
     syncTrackedIds();
 
-    if (!settings::enabled) return;
+    if (!settings::enabled) {
+        decisionFeatureWasActive = false;
+        decisionState = {};
+        mountRequested.store(false, std::memory_order_release);
+        return;
+    }
     if (!live_data::ready()) return;
 
     const auto now = std::chrono::steady_clock::now();
-    if (lastTick != std::chrono::steady_clock::time_point {}
-        && now - lastTick < tickInterval) {
+
+    const bool hasMountRequest = mountRequested.load(std::memory_order_acquire);
+    if (!hasMountRequest) {
+        if (lastTick != std::chrono::steady_clock::time_point {}
+            && now - lastTick < tickInterval) return;
+        lastTick = now;
+    } else {
+        lastTick = now;
+    }
+
+    const bool modeEnabled = mumble_link::isCompetitive()
+        ? settings::enableCompetitive : settings::enablePve;
+    if (!modeEnabled) {
+        decisionFeatureWasActive = false;
+        decisionState = {};
+        mountRequested.store(false, std::memory_order_release);
         return;
     }
-    lastTick = now;
-
-    // Mode gate. "Competitive" covers sPvP and WvW (isCompetitive()); "PvE"
-    // covers everything else. When the current mode's toggle is off, return
-    // before any snapshot work.
-    if (mumble_link::isCompetitive()) {
-        if (!settings::enableCompetitive) return;
-    } else {
-        if (!settings::enablePve) return;
+    if (!decisionFeatureWasActive) {
+        // A setting toggle is an explicit re-enable. Start with the same
+        // safety checks as normal operation, but do not make the user wait
+        // through the addon-startup grace period again.
+        decisionState = {};
+        decisionState.started = true;
+        decisionState.startedAt = now - std::chrono::milliseconds {2000};
+        decisionState.lastActiveAt = now - std::chrono::milliseconds {300};
+        decisionFeatureWasActive = true;
     }
 
     const bool transformed = isTransformed();
     const bool mounted = mumble_link::mountIndex() != 0;
 
-    // Mount unlock: the player asked to mount while transformed. Once the
-    // tonic is unequipped, press the GW2 mount bind once. Stay in this block
-    // until the mount is detected, the timeout abandons, or the player mounted
-    // through other means. While active the tonic re-press is suppressed so it
-    // cannot re-equip before the mount goes through.
-    if (mountRequested) {
+    if (hasMountRequest) {
         if (mounted) {
-            mountRequested = false;
+            mountRequested.store(false, std::memory_order_release);
             return;
         }
         if (now - mountRequestedAt > mountAttemptTimeout) {
-            mountRequested = false;
-        } else if (!transformed && now - mountRequestedAt >= mountUnequipSettle
-            && !mountPressSent) {
-            mountPressSent = true;
-            pressGameBind(api, kMountToggleBind);
+            mountRequested.store(false, std::memory_order_release);
+        } else if (!mountPressSent.load(std::memory_order_acquire)) {
+            // Mirror VoxSake: only press the mount bind once the transformation
+            // is really gone (snapshot) and the settle time has passed. No
+            // forced press: a snapshot lag would fire the mount key while still
+            // transformed, and the key is swallowed by the game.
+            if (now - mountRequestedAt >= mountUnequipSettle && !transformed) {
+                if (pressGameBind(api, kMountToggleBind)) {
+                    mountPressSent.store(true, std::memory_order_release);
+                } else {
+                    mountRequested.store(false, std::memory_order_release);
+                }
+                return;
+            }
             return;
         } else {
             return;
@@ -202,4 +230,4 @@ void tick(void* apiRaw, void*)
     pressGameBind(api, settings::noveltyBind);
 }
 
-} // namespace voxtonic::tonic
+}

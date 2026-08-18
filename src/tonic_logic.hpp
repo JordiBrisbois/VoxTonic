@@ -29,12 +29,6 @@ struct DecisionParams {
     // with the effect still absent, the tonic is pressed (auto-transform at
     // load when the feature is enabled).
     std::chrono::milliseconds startupDelay {2000};
-    // Re-press spacing while the effect has never been seen active. Right
-    // after an addon reload the memory backend can take a moment to publish a
-    // stable snapshot; pressing again with the short rePressDelay could toggle
-    // the tonic off before GW2 records the activation. This longer delay keeps
-    // retrying until the effect is confirmed active.
-    std::chrono::milliseconds startupRetryDelay {8000};
 };
 
 struct DecisionState {
@@ -43,6 +37,9 @@ struct DecisionState {
     std::chrono::steady_clock::time_point startedAt {};
     std::chrono::steady_clock::time_point lastActiveAt {};
     std::chrono::steady_clock::time_point lastPressAt {};
+    bool pendingConfirm = false;
+    std::chrono::steady_clock::time_point pendingSince {};
+    bool wasMounted = false;
 };
 
 inline bool decideShouldPress(const bool transformed, const bool mounted,
@@ -56,25 +53,41 @@ inline bool decideShouldPress(const bool transformed, const bool mounted,
     if (transformed) {
         state.everSeenActive = true;
         state.lastActiveAt = now;
+        state.pendingConfirm = false;
+        state.wasMounted = mounted;
         return false;
     }
     if (!state.everSeenActive && now - state.startedAt < params.startupDelay) {
         return false;
     }
-    // Never press while mounted: a mounted player cannot be transformed, so
-    // re-equipping would toggle the tonic on the mount bar.
-    if (mounted) return false;
+    if (mounted) {
+        state.wasMounted = true;
+        return false;
+    }
+    if (state.wasMounted) {
+        // Competitive mounting removes the tonic by design. Once the player
+        // is back on foot, allow one fresh activation immediately instead of
+        // being held back by the previous press's cooldown.
+        state.wasMounted = false;
+        state.lastActiveAt = now - params.absenceGrace;
+        state.lastPressAt = {};
+        state.pendingConfirm = false;
+    }
     if (now - state.lastActiveAt < params.absenceGrace) return false;
-    // Until the effect has been seen active once, space re-presses widely so
-    // the first press has time to be confirmed by the snapshot before another
-    // press could toggle the tonic off.
-    const auto retryDelay = state.everSeenActive
-        ? params.rePressDelay
-        : params.startupRetryDelay;
-    // lastPressAt == time_point{} means "never pressed": no anti-spam block.
+    // Novelty is a toggle. Never send a second press while the first press is
+    // waiting for confirmation: a delayed or missing snapshot must not turn
+    // the tonic back off. A real re-press is allowed only after the effect has
+    // been observed active and then disappears.
+    if (state.pendingConfirm) {
+        return false;
+    }
     if (state.lastPressAt != std::chrono::steady_clock::time_point {}
-        && now - state.lastPressAt < retryDelay) return false;
+        && now - state.lastPressAt < params.rePressDelay) {
+        return false;
+    }
     state.lastPressAt = now;
+    state.pendingConfirm = true;
+    state.pendingSince = now;
     return true;
 }
 

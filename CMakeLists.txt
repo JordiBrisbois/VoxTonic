@@ -17,7 +17,7 @@ FetchContent_Declare(nexus GIT_REPOSITORY https://github.com/RaidcoreGG/RCGG-lib
 FetchContent_MakeAvailable(nexus)
 
 set(VOXT_SOURCES
-    src/addon.cpp src/settings.cpp src/tonic.cpp src/ui.cpp src/mumble_link.cpp)
+    src/addon.cpp src/companion.cpp src/settings.cpp src/tonic.cpp src/ui.cpp src/mumble_link.cpp)
 
 set(VOXT_LIVE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../VoxTonic-RE"
     CACHE PATH "Private VoxTonic live-data implementation")

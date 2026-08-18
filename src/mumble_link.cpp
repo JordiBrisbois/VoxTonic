@@ -3,6 +3,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 
@@ -47,39 +48,31 @@ struct LinkedMem {
 
 struct HandleScope {
     HANDLE handle = nullptr;
-    ~HandleScope()
-    {
-        if (handle) CloseHandle(handle);
-    }
+    ~HandleScope() { if (handle) CloseHandle(handle); }
 };
 
 struct ViewScope {
     void* view = nullptr;
-    ~ViewScope()
-    {
-        if (view) UnmapViewOfFile(view);
-    }
+    ~ViewScope() { if (view) UnmapViewOfFile(view); }
 };
 
-// GW2 Mumble mapType values.
 constexpr std::uint32_t kMapTypeStructuredPvp = 2;
-constexpr std::uint32_t kMapTypeWvw = 9;       // incl. Edge of the Mists
-constexpr std::uint32_t kMapTypeWvwEotm = 11;
+constexpr std::uint32_t kMapTypeWvw = 9;
 
-// Fresh (cached < 250 ms) map type and mount index from the MumbleLink shared
-// memory. Returns 0 for both when the link is unavailable.
 struct ContextSnapshot {
     std::uint32_t mapType = 0;
     int mount = 0;
+    std::uint32_t uiState = 0;
 };
 
 ContextSnapshot readContext()
 {
+    static std::atomic<std::uint64_t> seq = 0;
     static ContextSnapshot cached {};
     static std::chrono::steady_clock::time_point cachedAt {};
     const auto now = std::chrono::steady_clock::now();
     if (cachedAt != std::chrono::steady_clock::time_point {}
-        && now - cachedAt < std::chrono::milliseconds {250}) {
+        && now - cachedAt < std::chrono::milliseconds {120}) {
         return cached;
     }
 
@@ -91,6 +84,8 @@ ContextSnapshot readContext()
             const auto* memory = static_cast<const LinkedMem*>(view.view);
             fresh.mapType = memory->context.mapType;
             fresh.mount = static_cast<int>(memory->context.mountIndex);
+            fresh.uiState = memory->context.uiState;
+            (void)seq.fetch_add(1, std::memory_order_relaxed);
         }
     }
     cached = fresh;
@@ -98,7 +93,7 @@ ContextSnapshot readContext()
     return cached;
 }
 
-} // namespace
+}
 
 bool isCompetitive()
 {
@@ -106,13 +101,14 @@ bool isCompetitive()
     static std::chrono::steady_clock::time_point cachedAt {};
     const auto now = std::chrono::steady_clock::now();
     if (cachedAt != std::chrono::steady_clock::time_point {}
-        && now - cachedAt < std::chrono::seconds {3}) {
+        && now - cachedAt < std::chrono::milliseconds {900}) {
         return cached;
     }
-
-    const auto mapType = readContext().mapType;
-    cached = mapType == kMapTypeStructuredPvp || mapType == kMapTypeWvw
-        || mapType == kMapTypeWvwEotm;
+    const auto snap = readContext();
+    const bool uiCompetitive = (snap.uiState & (1u << 5)) != 0;
+    const bool mapCompetitive = snap.mapType == kMapTypeStructuredPvp
+        || (snap.mapType >= kMapTypeWvw && snap.mapType <= 15);
+    cached = uiCompetitive || mapCompetitive;
     cachedAt = now;
     return cached;
 }
@@ -122,5 +118,14 @@ int mountIndex()
     return readContext().mount;
 }
 
-} // namespace voxtonic::mumble_link
+bool textInputFocused()
+{
+    return (readContext().uiState & (1u << 6)) != 0;
+}
 
+bool isInCombat()
+{
+    return (readContext().uiState & (1u << 7)) != 0;
+}
+
+}

@@ -24,16 +24,21 @@ int main()
         CHECK(decideShouldPress(false, false, t0 + milliseconds {2001}, params, state));
     }
 
-    // Monté pendant la fenêtre de démarrage : press différé, pas perdu.
+    // Monté pendant la fenêtre de démarrage : le démont arme lastPressAt,
+    // donc la première tentative attend rePressDelay après la réception (le
+    // saut de démont bloque l'usage d'objet en l'air).
     {
         DecisionState state;
         CHECK(!decideShouldPress(false, true, t0, params, state));
         CHECK(!decideShouldPress(false, true, t0 + milliseconds {2500}, params, state));
-        CHECK(decideShouldPress(false, false, t0 + milliseconds {2600}, params, state));
+        CHECK(!decideShouldPress(false, false, t0 + milliseconds {2600}, params, state));
+        CHECK(decideShouldPress(false, false, t0 + milliseconds {4601}, params, state));
     }
 
     // Après une keypress initiale, aucune seconde keypress tant que l'effet
-    // n'a pas été confirmé actif : le bind est un toggle.
+    // n'a pas été confirmé actif : le bind est un toggle. Une presse avalée
+    // (confirmTimeout écoulé sans transformation) réessaie, throttlée par
+    // rePressDelay.
     {
         DecisionState state;
         CHECK(!decideShouldPress(false, false, t0, params, state));
@@ -44,8 +49,10 @@ int main()
         // Après confirmation, une disparition réelle autorise le re-press.
         CHECK(decideShouldPress(false, false, tActive + milliseconds {500}, params, state));
         CHECK(!decideShouldPress(false, false, tActive + milliseconds {1000}, params, state));
-        CHECK(!decideShouldPress(false, false, tActive + milliseconds {2501}, params, state));
-        CHECK(!decideShouldPress(false, false, tActive + milliseconds {4100}, params, state));
+        // Presse avalée: retry à +2000 après la dernière tentative.
+        CHECK(decideShouldPress(false, false, tActive + milliseconds {2501}, params, state));
+        CHECK(!decideShouldPress(false, false, tActive + milliseconds {3100}, params, state));
+        CHECK(decideShouldPress(false, false, tActive + milliseconds {4601}, params, state));
     }
 
     // Actif pendant la fenêtre de démarrage => pas de press, état mémorisé.
@@ -66,34 +73,39 @@ int main()
         CHECK(decideShouldPress(false, false, tActive + milliseconds {301}, params, state));
     }
 
-    // Monté => jamais de press, même après grâce.
+    // Monté => jamais de press; au démont, première tentative différée de
+    // rePressDelay.
     {
         DecisionState state;
         const auto tActive = t0 + milliseconds {1000};
         CHECK(!decideShouldPress(true, false, tActive, params, state));
         CHECK(!decideShouldPress(false, true, tActive + milliseconds {2000}, params, state));
         CHECK(!decideShouldPress(false, true, tActive + milliseconds {10000}, params, state));
-        CHECK(decideShouldPress(false, false, tActive + milliseconds {10100}, params, state));
+        CHECK(!decideShouldPress(false, false, tActive + milliseconds {10100}, params, state));
+        CHECK(decideShouldPress(false, false, tActive + milliseconds {12101}, params, state));
     }
 
     // Après un montage compétitif, le tonic est retiré par GW2 et doit être
-    // réactivé dès le retour à pied.
+    // réactivé dès le retour à pied — après rePressDelay (saut de démont).
     {
         DecisionState state;
         CHECK(!decideShouldPress(true, false, t0 + milliseconds {1000}, params, state));
         CHECK(!decideShouldPress(false, true, t0 + milliseconds {2000}, params, state));
-        CHECK(decideShouldPress(false, false, t0 + milliseconds {2100}, params, state));
+        CHECK(!decideShouldPress(false, false, t0 + milliseconds {2100}, params, state));
+        CHECK(decideShouldPress(false, false, t0 + milliseconds {4101}, params, state));
     }
 
-    // Anti-spam : pending reste bloqué tant que l'effet n'est pas confirmé.
+    // Anti-spam : une presse non confirmée réessaie après confirmTimeout +
+    // rePressDelay, mais jamais plus vite.
     {
         DecisionState state;
         const auto tActive = t0 + milliseconds {1000};
         CHECK(!decideShouldPress(true, false, tActive, params, state));
         CHECK(decideShouldPress(false, false, tActive + milliseconds {500}, params, state));
         CHECK(!decideShouldPress(false, false, tActive + milliseconds {1000}, params, state));
-        CHECK(!decideShouldPress(false, false, tActive + milliseconds {2501}, params, state));
-        CHECK(!decideShouldPress(false, false, tActive + milliseconds {4001}, params, state));
+        CHECK(decideShouldPress(false, false, tActive + milliseconds {2501}, params, state));
+        CHECK(!decideShouldPress(false, false, tActive + milliseconds {3100}, params, state));
+        CHECK(decideShouldPress(false, false, tActive + milliseconds {4601}, params, state));
     }
 
     // Réactivation => pending clear, puis nouveau press.
@@ -108,17 +120,19 @@ int main()
         CHECK(decideShouldPress(false, false, tAgain + milliseconds {500}, params, state));
     }
 
-    // Pending empêche définitivement le toggle tant qu'aucun buff n'est confirmé.
+    // Pending bloque le toggle immédiat, puis retry throttlé.
     {
         DecisionState state;
         const auto tActive = t0 + milliseconds {1000};
         CHECK(!decideShouldPress(true, false, tActive, params, state));
         // Premier demorph -> press à +500
         CHECK(decideShouldPress(false, false, tActive + milliseconds {500}, params, state));
-        // Snapshot encore absent à +2000 : pending bloque, sinon toggle -> loop
+        // Snapshot encore absent à +2000 : pending expire (1200) mais le
+        // throttle lastPressAt retient jusqu'à +2500.
         CHECK(!decideShouldPress(false, false, tActive + milliseconds {2000}, params, state));
-        CHECK(!decideShouldPress(false, false, tActive + milliseconds {3400}, params, state));
-        CHECK(!decideShouldPress(false, false, tActive + milliseconds {4100}, params, state));
+        CHECK(decideShouldPress(false, false, tActive + milliseconds {2501}, params, state));
+        CHECK(!decideShouldPress(false, false, tActive + milliseconds {3100}, params, state));
+        CHECK(decideShouldPress(false, false, tActive + milliseconds {4601}, params, state));
     }
 
     std::fprintf(stderr, "tonic_logic_tests: all checks passed\n");

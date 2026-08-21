@@ -29,6 +29,9 @@ struct DecisionParams {
     // with the effect still absent, the tonic is pressed (auto-transform at
     // load when the feature is enabled).
     std::chrono::milliseconds startupDelay {2000};
+    // A press whose transformation never appeared (GW2 blocks item use during
+    // the dismount hop, eaten binds...) retries after this long.
+    std::chrono::milliseconds confirmTimeout {1200};
 };
 
 struct DecisionState {
@@ -65,21 +68,22 @@ inline bool decideShouldPress(const bool transformed, const bool mounted,
         return false;
     }
     if (state.wasMounted) {
-        // Competitive mounting removes the tonic by design. Once the player
-        // is back on foot, allow one fresh activation immediately instead of
-        // being held back by the previous press's cooldown.
+        // Dismounting ends with a short airborne hop during which GW2 refuses
+        // item use: arm lastPressAt so the first activation attempt fires
+        // rePressDelay after landing instead of instantly into the jump.
         state.wasMounted = false;
         state.lastActiveAt = now - params.absenceGrace;
-        state.lastPressAt = {};
+        state.lastPressAt = now;
         state.pendingConfirm = false;
     }
     if (now - state.lastActiveAt < params.absenceGrace) return false;
-    // Novelty is a toggle. Never send a second press while the first press is
-    // waiting for confirmation: a delayed or missing snapshot must not turn
-    // the tonic back off. A real re-press is allowed only after the effect has
-    // been observed active and then disappears.
+    // Novelty is a toggle. While the first press is waiting for confirmation,
+    // never send a second one — unless it clearly was swallowed (no
+    // transformation after confirmTimeout): then expire the wait and let the
+    // lastPressAt throttle schedule a retry.
     if (state.pendingConfirm) {
-        return false;
+        if (now - state.pendingSince < params.confirmTimeout) return false;
+        state.pendingConfirm = false;
     }
     if (state.lastPressAt != std::chrono::steady_clock::time_point {}
         && now - state.lastPressAt < params.rePressDelay) {

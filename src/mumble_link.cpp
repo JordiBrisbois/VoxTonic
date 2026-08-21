@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <mutex>
 
 namespace voxtonic::mumble_link {
 namespace {
@@ -65,15 +66,22 @@ struct ContextSnapshot {
     std::uint32_t uiState = 0;
 };
 
+// Called from both the render thread (tick) and the game's window thread
+// (WndProc mount-unlock): the caches are mutex-guarded so a torn timestamp or
+// half-written snapshot can never be observed.
+std::mutex cacheMutex;
+
 ContextSnapshot readContext()
 {
-    static std::atomic<std::uint64_t> seq = 0;
     static ContextSnapshot cached {};
     static std::chrono::steady_clock::time_point cachedAt {};
     const auto now = std::chrono::steady_clock::now();
-    if (cachedAt != std::chrono::steady_clock::time_point {}
-        && now - cachedAt < std::chrono::milliseconds {120}) {
-        return cached;
+    {
+        const std::lock_guard lock(cacheMutex);
+        if (cachedAt != std::chrono::steady_clock::time_point {}
+            && now - cachedAt < std::chrono::milliseconds {120}) {
+            return cached;
+        }
     }
 
     ContextSnapshot fresh {};
@@ -85,9 +93,9 @@ ContextSnapshot readContext()
             fresh.mapType = memory->context.mapType;
             fresh.mount = static_cast<int>(memory->context.mountIndex);
             fresh.uiState = memory->context.uiState;
-            (void)seq.fetch_add(1, std::memory_order_relaxed);
         }
     }
+    const std::lock_guard lock(cacheMutex);
     cached = fresh;
     cachedAt = now;
     return cached;
@@ -100,14 +108,18 @@ bool isCompetitive()
     static bool cached = false;
     static std::chrono::steady_clock::time_point cachedAt {};
     const auto now = std::chrono::steady_clock::now();
-    if (cachedAt != std::chrono::steady_clock::time_point {}
-        && now - cachedAt < std::chrono::milliseconds {900}) {
-        return cached;
+    {
+        const std::lock_guard lock(cacheMutex);
+        if (cachedAt != std::chrono::steady_clock::time_point {}
+            && now - cachedAt < std::chrono::milliseconds {900}) {
+            return cached;
+        }
     }
     const auto snap = readContext();
     const bool uiCompetitive = (snap.uiState & (1u << 5)) != 0;
     const bool mapCompetitive = snap.mapType == kMapTypeStructuredPvp
         || (snap.mapType >= kMapTypeWvw && snap.mapType <= 15);
+    const std::lock_guard lock(cacheMutex);
     cached = uiCompetitive || mapCompetitive;
     cachedAt = now;
     return cached;

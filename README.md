@@ -33,6 +33,22 @@ No overlay, no license: the options window lives in the Nexus addon list.
 3. Reload the addon list in Nexus (or restart the game).
 4. Open the Nexus options and enable VoxTonic in the addon list.
 
+## Setup
+
+VoxTonic presses the game's own actions for you, so two things must point at
+it before anything happens:
+
+1. **Equip the tonic in-game** — put it in your hero panel's **Novelty slot**
+   (the toggle acts on whatever is equipped there, not on an inventory item).
+2. **Assign the novelty bind in Nexus** — open the Nexus options, go to
+   **Keybinds → Guild Wars 2**, and set a key on **Equip/Unequip Novelty**.
+   The addon triggers that exact action; with no key assigned there is nothing
+   to press.
+3. *(Mount helper only, PvE)* Set **Mount key** in the VoxTonic options to the
+   same key your in-game mount summon uses (default `X`). When you press it
+   while transformed, the tonic is removed so the mount goes through, then
+   re-applied after you dismount. Dismounting is never automated.
+
 ## Settings
 
 Stored in `<game>/addons/VoxTonic/settings.ini` (editable from the options

@@ -227,7 +227,13 @@ void tick(void* apiRaw, void*)
 
     const bool transformed = isTransformed();
     const bool mounted = mumble_link::mountIndex() != 0;
-
+    // GW2 blocks the novelty toggle while in combat: pressing would spam a
+    // bind the game refuses. Suspend the re-press until combat ends; when it
+    // ends the normal absence grace applies and the tonic is restored.
+    if (mumble_link::isInCombat()) {
+        decisionFeatureWasActive = false;
+        return;
+    }
     if (hasMountRequest) {
         std::chrono::steady_clock::time_point requestedAt {};
         {

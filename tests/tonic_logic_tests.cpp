@@ -52,7 +52,12 @@ int main()
         // Presse avalée: retry à +2000 après la dernière tentative.
         CHECK(decideShouldPress(false, false, tActive + milliseconds {2501}, params, state));
         CHECK(!decideShouldPress(false, false, tActive + milliseconds {3100}, params, state));
-        CHECK(decideShouldPress(false, false, tActive + milliseconds {4601}, params, state));
+        CHECK(!decideShouldPress(false, false, tActive + milliseconds {4601}, params, state));
+        // Back-off 8s depuis le dernier press avalé (+2501) -> press à +10501.
+        CHECK(!decideShouldPress(false, false,
+            tActive + milliseconds {2501} + milliseconds {7900}, params, state));
+        CHECK(decideShouldPress(false, false,
+            tActive + milliseconds {2501} + milliseconds {8050}, params, state));
     }
 
     // Actif pendant la fenêtre de démarrage => pas de press, état mémorisé.
@@ -105,7 +110,12 @@ int main()
         CHECK(!decideShouldPress(false, false, tActive + milliseconds {1000}, params, state));
         CHECK(decideShouldPress(false, false, tActive + milliseconds {2501}, params, state));
         CHECK(!decideShouldPress(false, false, tActive + milliseconds {3100}, params, state));
-        CHECK(decideShouldPress(false, false, tActive + milliseconds {4601}, params, state));
+        CHECK(!decideShouldPress(false, false, tActive + milliseconds {4601}, params, state));
+        // Back-off 8s depuis le dernier press avalé (+2501) -> press à +10501.
+        CHECK(!decideShouldPress(false, false,
+            tActive + milliseconds {2501} + milliseconds {7900}, params, state));
+        CHECK(decideShouldPress(false, false,
+            tActive + milliseconds {2501} + milliseconds {8050}, params, state));
     }
 
     // Réactivation => pending clear, puis nouveau press.
@@ -132,7 +142,12 @@ int main()
         CHECK(!decideShouldPress(false, false, tActive + milliseconds {2000}, params, state));
         CHECK(decideShouldPress(false, false, tActive + milliseconds {2501}, params, state));
         CHECK(!decideShouldPress(false, false, tActive + milliseconds {3100}, params, state));
-        CHECK(decideShouldPress(false, false, tActive + milliseconds {4601}, params, state));
+        CHECK(!decideShouldPress(false, false, tActive + milliseconds {4601}, params, state));
+        // Back-off 8s depuis le dernier press avalé (+2501) -> press à +10501.
+        CHECK(!decideShouldPress(false, false,
+            tActive + milliseconds {2501} + milliseconds {7900}, params, state));
+        CHECK(decideShouldPress(false, false,
+            tActive + milliseconds {2501} + milliseconds {8050}, params, state));
     }
 
     std::fprintf(stderr, "tonic_logic_tests: all checks passed\n");

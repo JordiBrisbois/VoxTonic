@@ -4,34 +4,20 @@
 
 namespace voxtonic::logic {
 
-// Pure decision logic for the tonic auto re-press feature. No Windows headers,
-// no Nexus dependency: portable and unit-testable.
-//
-// The bind pressed is the player's "Equip/Unequip Novelty" (a toggle). The
-// logic presses only while the transformation effect is absent and the player
-// is on foot (mounted players cannot be transformed, so a mounted check is
-// redundant). On startup, an initial grace period gives an already-transformed
-// player time to be detected (so the tonic is not toggled off), then the tonic
-// is pressed if it is still absent (so the feature transforms the player
-// automatically when the addon loads active).
-
 struct DecisionParams {
-    // Minimum time between two presses (anti-spam while the tonic is on
-    // cooldown or the effect ID is wrong).
     std::chrono::milliseconds rePressDelay {2000};
-    // Minimum time the effect must have been absent before pressing. Absorbs
-    // the few frames where the buff list lags behind a mount dismount.
     std::chrono::milliseconds absenceGrace {300};
-    // Wait this long after the first evaluation before the first press when
-    // the effect was never seen active. Covers an incomplete first snapshot
-    // right after addon load: pressing during that window could toggle the
-    // tonic off while the player is actually transformed. After it elapses
-    // with the effect still absent, the tonic is pressed (auto-transform at
-    // load when the feature is enabled).
     std::chrono::milliseconds startupDelay {2000};
     // A press whose transformation never appeared (GW2 blocks item use during
-    // the dismount hop, eaten binds...) retries after this long.
+    // the dismount hop, eaten binds, death, combat novelty locks...) retries
+    // after this long — until repeated failures trigger the back-off below.
     std::chrono::milliseconds confirmTimeout {1200};
+    // After this many swallowed presses in a row (transformation never came
+    // back), the next press waits for blockedRetryDelay instead of
+    // rePressDelay. Covers states with no dedicated detection: dead, combat
+    // locks, blocked item usage.
+    int swallowedBeforeBackoff = 2;
+    std::chrono::milliseconds blockedRetryDelay {8000};
 };
 
 struct DecisionState {
@@ -43,6 +29,7 @@ struct DecisionState {
     bool pendingConfirm = false;
     std::chrono::steady_clock::time_point pendingSince {};
     bool wasMounted = false;
+    int swallowedPresses = 0;
 };
 
 inline bool decideShouldPress(const bool transformed, const bool mounted,
@@ -57,6 +44,9 @@ inline bool decideShouldPress(const bool transformed, const bool mounted,
         state.everSeenActive = true;
         state.lastActiveAt = now;
         state.pendingConfirm = false;
+        // A press that produced the transformation counts as delivered: the
+        // back-off only exists for swallowed presses.
+        state.swallowedPresses = 0;
         state.wasMounted = mounted;
         return false;
     }
@@ -69,24 +59,29 @@ inline bool decideShouldPress(const bool transformed, const bool mounted,
     }
     if (state.wasMounted) {
         // Dismounting ends with a short airborne hop during which GW2 refuses
-        // item use: arm lastPressAt so the first activation attempt fires
-        // rePressDelay after landing instead of instantly into the jump.
+        // item use: arm lastPressAt so the first attempt fires rePressDelay
+        // after landing instead of instantly into the jump.
         state.wasMounted = false;
         state.lastActiveAt = now - params.absenceGrace;
         state.lastPressAt = now;
         state.pendingConfirm = false;
     }
     if (now - state.lastActiveAt < params.absenceGrace) return false;
-    // Novelty is a toggle. While the first press is waiting for confirmation,
-    // never send a second one — unless it clearly was swallowed (no
-    // transformation after confirmTimeout): then expire the wait and let the
-    // lastPressAt throttle schedule a retry.
     if (state.pendingConfirm) {
+        // Waiting for the transformation to appear. If it never does, the
+        // press was swallowed (combat novelty lock, death, blocked item
+        // use...): count the failure and back off progressively instead of
+        // hammering a bind the game refuses.
         if (now - state.pendingSince < params.confirmTimeout) return false;
         state.pendingConfirm = false;
+        ++state.swallowedPresses;
     }
+    const auto retryDelay =
+        state.swallowedPresses >= params.swallowedBeforeBackoff
+            ? params.blockedRetryDelay
+            : params.rePressDelay;
     if (state.lastPressAt != std::chrono::steady_clock::time_point {}
-        && now - state.lastPressAt < params.rePressDelay) {
+        && now - state.lastPressAt < retryDelay) {
         return false;
     }
     state.lastPressAt = now;
@@ -95,4 +90,4 @@ inline bool decideShouldPress(const bool transformed, const bool mounted,
     return true;
 }
 
-} // namespace voxtonic::logic
+}

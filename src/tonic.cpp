@@ -267,6 +267,11 @@ void tick(void* apiRaw, void*)
 
     logic::DecisionParams params;
     params.rePressDelay = std::chrono::milliseconds {settings::rePressDelayMs};
+    // Blocked states (death, combat novelty locks...) back off after two
+    // swallowed presses instead of retrying every rePressDelay.
+    params.swallowedBeforeBackoff = 2;
+    params.blockedRetryDelay = std::chrono::milliseconds {8000};
+
     if (!logic::decideShouldPress(transformed, mounted, now, params, decisionState)) {
         return;
     }

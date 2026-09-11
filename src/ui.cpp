@@ -41,6 +41,8 @@ void renderOptions()
 
     if (ImGui::Checkbox("Enable tonic auto re-press", &settings::enabled)) {
         settings::markChanged();
+        // The mount-unlock hook only lives while the feature is on.
+        tonic::updateBindings(api);
         changed = true;
     }
     ImGui::TextDisabled(
@@ -127,7 +129,8 @@ void renderOptions()
     ImGui::TextDisabled(
         "Virtual-key code of your GW2 mount key (default 88 = X). While "
         "transformed on foot in PvE, pressing it unequips the tonic and then "
-        "presses your GW2 Mount/Dismount bind so the mount goes through.");
+        "presses your GW2 Mount/Dismount bind so the mount goes through. "
+        "Mount unlock is PvE only and never engages in competitive maps.");
 
     ImGui::Separator();
     ImGui::SetNextItemWidth(100.0f);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <optional>
 
 namespace voxtonic::logic {
 
@@ -88,6 +89,34 @@ inline bool decideShouldPress(const bool transformed, const bool mounted,
     state.pendingConfirm = true;
     state.pendingSince = now;
     return true;
+}
+
+// Pure mode gate, evaluated once per tick. Factored out so the invariant that
+// matters is testable: the decision state must be reset only on a *real* mode
+// change. Wiping it every tick loses lastPressAt, which defeats the anti-spam
+// throttle in decideShouldPress and turns the re-press into a press storm.
+struct ModeGate {
+    // The re-press runs in this mode.
+    bool enabled = false;
+    // The decision state must be reset (mode transition, or the gate is off).
+    bool resetDecision = false;
+    // A mount request must be dropped: competitive maps are PvE-only for the
+    // mount-unlock, since the game cancels the tonic there on its own.
+    bool clearMount = false;
+};
+
+inline ModeGate evaluateModeGate(const bool competitive, const bool enablePve,
+    const bool enableCompetitive, std::optional<bool>& lastCompetitive)
+{
+    ModeGate gate;
+    gate.clearMount = competitive;
+    gate.enabled = competitive ? enableCompetitive : enablePve;
+    if (!lastCompetitive.has_value() || *lastCompetitive != competitive) {
+        lastCompetitive = competitive;
+        gate.resetDecision = true;
+    }
+    if (!gate.enabled) gate.resetDecision = true;
+    return gate;
 }
 
 }

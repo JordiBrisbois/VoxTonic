@@ -150,6 +150,58 @@ int main()
             tActive + milliseconds {2501} + milliseconds {8050}, params, state));
     }
 
+    // Gate de mode (non-régression du press storm) : l'état de décision ne doit
+    // être réinitialisé QUE sur un vrai changement de mode. Le réinitialiser à
+    // chaque tick compétitif faisait perdre lastPressAt -> une presse par tick
+    // au lieu d'une par rePressDelay.
+    {
+        using voxtonic::logic::evaluateModeGate;
+        std::optional<bool> last;
+
+        auto gate = evaluateModeGate(true, true, true, last);
+        CHECK(gate.enabled && gate.clearMount && gate.resetDecision); // 1er tick
+        gate = evaluateModeGate(true, true, true, last);
+        CHECK(gate.enabled && gate.clearMount && !gate.resetDecision); // même mode
+        gate = evaluateModeGate(true, true, true, last);
+        CHECK(!gate.resetDecision);
+        gate = evaluateModeGate(false, true, true, last);   // comp -> PvE
+        CHECK(gate.enabled && !gate.clearMount && gate.resetDecision);
+        gate = evaluateModeGate(false, false, false, last); // gate coupé
+        CHECK(!gate.enabled && gate.resetDecision);
+
+        // 100 ticks compétitifs (100 ms) sans transformation, le gate appliqué
+        // exactement comme dans tick().
+        DecisionState state;
+        std::optional<bool> lastC;
+        int presses = 0;
+        auto t = steady_clock::time_point {};
+        for (int tick = 0; tick < 100; ++tick) {
+            t += milliseconds {100};
+            const auto g = evaluateModeGate(true, true, true, lastC);
+            if (g.resetDecision) state = {};
+            if (!g.enabled) continue;
+            if (decideShouldPress(false, false, t, params, state)) ++presses;
+        }
+
+        // Contre-épreuve : l'ancien comportement (état réinitialisé à chaque
+        // tick) presse à chaque tick.
+        DecisionState storm;
+        int stormPresses = 0;
+        auto t2 = steady_clock::time_point {};
+        for (int tick = 0; tick < 100; ++tick) {
+            t2 += milliseconds {100};
+            storm = {};
+            storm.started = true;
+            storm.startedAt = t2 - params.startupDelay;
+            storm.lastActiveAt = t2 - params.absenceGrace;
+            if (decideShouldPress(false, false, t2, params, storm)) ++stormPresses;
+        }
+
+        CHECK(presses >= 1 && presses <= 5);
+        CHECK(stormPresses >= 90);
+        CHECK(presses * 10 <= stormPresses);
+    }
+
     std::fprintf(stderr, "tonic_logic_tests: all checks passed\n");
     return 0;
 }

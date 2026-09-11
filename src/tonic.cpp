@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 
 namespace voxtonic::tonic {
 namespace {
@@ -58,6 +59,10 @@ WPARAM lastProgrammaticKey = 0;
 std::vector<std::uint32_t> lastTrackedIds;
 bool trackedIdsInitialized = false;
 bool decisionFeatureWasActive = false;
+// Last map mode seen by tick() (true = competitive); only a real change resets
+// the decision state, so the anti-spam throttle survives a competitive session
+// instead of being wiped every tick.
+std::optional<bool> lastCompetitive {};
 
 bool isTransformed()
 {
@@ -128,6 +133,9 @@ UINT onMountUnlockWndProc(HWND, const UINT uMsg, const WPARAM wParam, const LPAR
         }
     }
 
+    // In combat GW2 refuses both the novelty toggle and mounting: pass the key
+    // through and let the game show its own refusal.
+    if (mumble_link::isInCombat()) return 1;
     if (mumble_link::isCompetitive()) return 1;
     if (mumble_link::mountIndex() != 0) return 1;
     if (!isTransformed()) return 1;
@@ -155,6 +163,7 @@ void reset()
     lastTrackedIds.clear();
     trackedIdsInitialized = false;
     decisionFeatureWasActive = false;
+    lastCompetitive.reset();
 }
 
 void updateBindings(void* apiRaw)
@@ -167,7 +176,9 @@ void updateBindings(void* apiRaw)
     }
     boundApi.store(api, std::memory_order_release);
     if (api == nullptr) return;
-    if (!settings::mountUnlockEnabled) return;
+    // The hook only exists while the feature and its mount helper are both on:
+    // a disabled tonic must be strictly zero-cost (no callback at all).
+    if (!settings::enabled || !settings::mountUnlockEnabled) return;
     if (api->WndProc.Register == nullptr) return;
     api->WndProc.Register(onMountUnlockWndProc);
 }
@@ -193,9 +204,29 @@ void tick(void* apiRaw, void*)
         mountRequested.store(false, std::memory_order_release);
         return;
     }
-    if (!live_data::ready()) return;
-
     const auto now = std::chrono::steady_clock::now();
+
+    // Watchdog: a mount request may never outlive its window. The block that
+    // services it sits below several early-returns (combat, backend not ready)
+    // that used to leave it alive — and a pending request bypasses the tick
+    // throttle, so it also re-ran every frame.
+    {
+        bool stale = false;
+        {
+            const std::lock_guard lock(stateMutex);
+            if (mountRequested.load(std::memory_order_acquire)
+                && (mountRequestedAt == std::chrono::steady_clock::time_point {}
+                    || now - mountRequestedAt > mountAttemptTimeout)) {
+                mountRequestedAt = {};
+                stale = true;
+            }
+        }
+        if (stale) {
+            mountRequested.store(false, std::memory_order_release);
+            mountPressSent.store(false, std::memory_order_release);
+        }
+    }
+    if (!live_data::ready()) return;
 
     const bool hasMountRequest = mountRequested.load(std::memory_order_acquire);
     if (!hasMountRequest) {
@@ -206,11 +237,24 @@ void tick(void* apiRaw, void*)
         lastTick = now;
     }
 
-    const bool modeEnabled = mumble_link::isCompetitive()
-        ? settings::enableCompetitive : settings::enablePve;
-    if (!modeEnabled) {
+    // Mode gate: competitive = sPvP + WvW, everything else is PvE. The
+    // mount-unlock is PvE-only, so a mount request is always dropped in
+    // competitive maps.
+    const auto gate = logic::evaluateModeGate(mumble_link::isCompetitive(),
+        settings::enablePve, settings::enableCompetitive, lastCompetitive);
+    if (gate.clearMount) {
+        mountRequested.store(false, std::memory_order_release);
+        mountPressSent.store(false, std::memory_order_release);
+        const std::lock_guard lock(stateMutex);
+        mountRequestedAt = {};
+    }
+    // Reset only on a real mode change (see evaluateModeGate), otherwise the
+    // anti-spam throttle is lost and the novelty bind is pressed every tick.
+    if (gate.resetDecision) {
         decisionFeatureWasActive = false;
         decisionState = {};
+    }
+    if (!gate.enabled) {
         mountRequested.store(false, std::memory_order_release);
         return;
     }
@@ -244,25 +288,20 @@ void tick(void* apiRaw, void*)
             mountRequested.store(false, std::memory_order_release);
             return;
         }
-        if (now - requestedAt > mountAttemptTimeout) {
-            mountRequested.store(false, std::memory_order_release);
-        } else if (!mountPressSent.load(std::memory_order_acquire)) {
-            // Mirror VoxSake: only press the mount bind once the transformation
-            // is really gone (snapshot) and the settle time has passed. No
-            // forced press: a snapshot lag would fire the mount key while still
-            // transformed, and the key is swallowed by the game.
+        // The watchdog above already abandoned any request past its timeout.
+        if (!mountPressSent.load(std::memory_order_acquire)) {
+            // Only press the mount bind once the transformation is really gone
+            // and the settle time has passed: a lagging snapshot would fire the
+            // mount key while still transformed and the game would swallow it.
             if (now - requestedAt >= mountUnequipSettle && !transformed) {
                 if (pressGameBind(api, kMountToggleBind)) {
                     mountPressSent.store(true, std::memory_order_release);
                 } else {
                     mountRequested.store(false, std::memory_order_release);
                 }
-                return;
             }
-            return;
-        } else {
-            return;
         }
+        return;
     }
 
     logic::DecisionParams params;

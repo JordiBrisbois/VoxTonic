@@ -21,7 +21,7 @@ set(VOXT_SOURCES
 
 set(VOXT_LIVE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../VoxTonic-RE"
     CACHE PATH "Private VoxTonic live-data implementation")
-set(VOXT_LIVE_DATA_REF "main"
+set(VOXT_LIVE_DATA_REF "e59f00550939f8a4443032b4e27cb8bce0047d2d"
     CACHE STRING "Reviewed live-data revision")
 option(VOXT_ENABLE_LIVE_DATA "Link the private VoxTonic live-data backend" ON)
 if(VOXT_ENABLE_LIVE_DATA AND EXISTS "${VOXT_LIVE_DATA_DIR}/CMakeLists.txt")

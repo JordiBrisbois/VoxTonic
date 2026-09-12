@@ -12,6 +12,7 @@ void setTrackedIds(std::vector<std::uint32_t>) {}
 std::vector<std::uint32_t> activeEffectIds() { return {}; }
 Snapshot snapshot() { return {}; }
 Diagnostics diagnostics() { return {}; }
+ShutdownReport lastShutdownReport() { return {}; }
 const char* diagnosticStage() { return "not_initialized"; }
 const char* diagnosticDetail() { return "stub backend"; }
 

@@ -21,7 +21,7 @@ set(VOXT_SOURCES
 
 set(VOXT_LIVE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../VoxTonic-RE"
     CACHE PATH "Private VoxTonic live-data implementation")
-set(VOXT_LIVE_DATA_REF "e59f00550939f8a4443032b4e27cb8bce0047d2d"
+set(VOXT_LIVE_DATA_REF "0e6bca4e5141c49214b00254a22c7e60b34f8221"
     CACHE STRING "Reviewed live-data revision")
 option(VOXT_ENABLE_LIVE_DATA "Link the private VoxTonic live-data backend" ON)
 if(VOXT_ENABLE_LIVE_DATA AND EXISTS "${VOXT_LIVE_DATA_DIR}/CMakeLists.txt")
@@ -72,16 +72,6 @@ if(VOXT_BUILD_ADDON)
     endif()
     target_compile_options(VoxTonic PRIVATE -Wall -Wextra -Wpedantic -fno-strict-aliasing)
     target_link_options(VoxTonic PRIVATE -static -static-libgcc -static-libstdc++)
-
-    set(VOXT_INSTALL_DIR "" CACHE PATH "Optional directory receiving VoxTonic.dll after each build")
-    if(VOXT_INSTALL_DIR)
-        add_custom_command(TARGET VoxTonic POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${VOXT_INSTALL_DIR}"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:VoxTonic>"
-                "${VOXT_INSTALL_DIR}/VoxTonic.dll"
-            COMMENT "Copying VoxTonic.dll to ${VOXT_INSTALL_DIR}")
-    endif()
 endif()
 
 if(BUILD_TESTING)

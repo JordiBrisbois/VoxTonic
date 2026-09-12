@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <thread>
 
 AddonAPI* api = nullptr;
@@ -114,6 +115,20 @@ void unload()
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     voxtonic::live_data::shutdown();
+    if (api != nullptr) {
+        // Report how the game-thread hook went down. The only reason this can
+        // fail is that the hook could not be stopped, and the fallback pins the
+        // module, which leaves the DLL locked until GW2 exits (no hot-reload).
+        // Silence would make that indistinguishable from a clean unload.
+        const auto report = voxtonic::live_data::lastShutdownReport();
+        char message[256] {};
+        std::snprintf(message, sizeof(message),
+            "Live hook shutdown: %s (disable status %d after %d attempt(s), in-flight %d then %d).",
+            report.pinned ? "MODULE PINNED, DLL stays locked until GW2 exits" : "clean",
+            report.disableStatus, report.disableAttempts, report.inFlightBeforeDisable,
+            report.inFlightAfterDisable);
+        api->Log(report.pinned ? ELogLevel_WARNING : ELogLevel_INFO, "VoxTonic", message);
+    }
     voxtonic::tonic::updateBindings(nullptr);
     voxtonic::tonic::reset();
     voxtonic::companion::reset();

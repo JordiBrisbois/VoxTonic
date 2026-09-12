@@ -1,6 +1,18 @@
 cmake_minimum_required(VERSION 3.31)
 project(VoxTonic VERSION 0.1.0 LANGUAGES CXX)
 
+# Options. Same convention in VoxSake, VoxTonic and Vox-vision:
+#   VOXT_ENABLE_LIVE_DATA  ON  = link the private VoxTonic-RE backend (real game
+#                                memory)
+#                          OFF = link src/live_data_stub.cpp, so the addon builds
+#                                without the private checkout
+#   VOXT_BUILD_ADDON       ON  = build the Windows Nexus addon; OFF keeps the
+#                                portable tests buildable on any host
+#   BUILD_TESTING              standard CTest switch
+#   *_REF / *_DIR              pinned revision (CI) / sibling checkout (local) of
+#                              the private dependencies. The bump workflow
+#                              rewrites the *_REF variables by name, so do not
+#                              rename them.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -21,7 +33,7 @@ set(VOXT_SOURCES
 
 set(VOXT_LIVE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../VoxTonic-RE"
     CACHE PATH "Private VoxTonic live-data implementation")
-set(VOXT_LIVE_DATA_REF "0e6bca4e5141c49214b00254a22c7e60b34f8221"
+set(VOXT_LIVE_DATA_REF "d625c5e36678b8eea63651b4381cb9c49f05ea9c"
     CACHE STRING "Reviewed live-data revision")
 option(VOXT_ENABLE_LIVE_DATA "Link the private VoxTonic live-data backend" ON)
 if(VOXT_ENABLE_LIVE_DATA AND EXISTS "${VOXT_LIVE_DATA_DIR}/CMakeLists.txt")

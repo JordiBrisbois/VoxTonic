@@ -13,6 +13,9 @@ extern bool enableCompetitive;       // mode gate: sPvP + WvW
 extern int rePressDelayMs;           // anti-spam between presses
 extern bool mountUnlockEnabled;      // PvE-only: unequip tonic on mount press
 extern int mountUnlockKey;           // VK code of the mount key (88 = X)
+// Transient (never persisted): true while the options panel waits for the
+// player to press their mount key so its virtual-key code can be captured.
+extern bool mountUnlockKeyCapture;
 extern int noveltyBind;              // EGameBinds value of Equip/Unequip Novelty (162)
 
 void load();

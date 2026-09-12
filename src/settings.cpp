@@ -49,6 +49,7 @@ bool enableCompetitive = false;
 int rePressDelayMs = 2000;
 bool mountUnlockEnabled = true;
 int mountUnlockKey = 'X';
+bool mountUnlockKeyCapture = false;
 int noveltyBind = 162; // EGameBinds_ToyUseDefault (Equip/Unequip Novelty)
 
 void load()
